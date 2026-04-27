@@ -1,8 +1,7 @@
-name: 🇮🇳 Daily Hindi YouTube Short — Aaj Ka Itihaas
+name: Daily Hindi YouTube Short
 
 on:
   schedule:
-    # Every day at 02:30 UTC = 8:00 AM IST
     - cron: "30 2 * * *"
   workflow_dispatch:
 
@@ -32,8 +31,6 @@ jobs:
             libraqm0 \
             libraqm-dev
           fc-cache -f -v
-          echo "── Confirming Devanagari font is registered ──"
-          fc-list :lang=hi | head -5 || true
 
       - name: Install Python dependencies
         run: |
@@ -43,40 +40,38 @@ jobs:
       - name: Prepare output directories
         run: mkdir -p output/slides output/backgrounds
 
-      - name: Debug — check if Groq key is loaded
+      - name: Debug check Groq key is loaded
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY0526 }}
         run: |
           if [ -z "$GROQ_API_KEY" ]; then
-            echo "GROQ_API_KEY is EMPTY — secret not found or has empty value"
+            echo "GROQ_API_KEY is EMPTY"
             exit 1
           fi
           echo "GROQ_API_KEY is set"
-          echo "  Length: ${#GROQ_API_KEY} characters"
-          echo "  First 4 chars: ${GROQ_API_KEY:0:4}"
-          echo "  Last 4 chars: ${GROQ_API_KEY: -4}"
+          echo "Length: ${#GROQ_API_KEY} characters"
+          echo "First 4 chars: ${GROQ_API_KEY:0:4}"
 
       - name: Generate and upload video
         env:
-          GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY0526 }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY0526 }}
           YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS0526 }}
-          OPENAI_API_KEY:      ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python main.py
 
       - name: Save video as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "short-${{ github.run_number }}-${{ github.run_attempt }}"
+          name: short-${{ github.run_number }}-${{ github.run_attempt }}
           path: output/final_video.mp4
           retention-days: 14
 
       - name: Commit updated topics.json
         if: success()
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add topics.json
-          git diff --cached --quiet || \
-            git commit -m "chore: log today's date significance [skip ci]"
+          git diff --cached --quiet || git commit -m "chore: log today date significance [skip ci]"
           git push
