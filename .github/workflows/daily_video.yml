@@ -12,7 +12,6 @@ jobs:
     timeout-minutes: 25
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -22,7 +21,6 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      # Devanagari font + libraqm for proper Hindi text shaping in PIL
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
@@ -44,16 +42,16 @@ jobs:
 
       - name: Prepare output directories
         run: mkdir -p output/slides output/backgrounds
-        
-      - name: 🔍 Debug — check if Groq key is loaded
+
+      - name: Debug — check if Groq key is loaded
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY0526 }}
         run: |
           if [ -z "$GROQ_API_KEY" ]; then
-            echo "❌ GROQ_API_KEY is EMPTY — secret not found or has empty value"
+            echo "GROQ_API_KEY is EMPTY — secret not found or has empty value"
             exit 1
           fi
-          echo "✓ GROQ_API_KEY is set"
+          echo "GROQ_API_KEY is set"
           echo "  Length: ${#GROQ_API_KEY} characters"
           echo "  First 4 chars: ${GROQ_API_KEY:0:4}"
           echo "  Last 4 chars: ${GROQ_API_KEY: -4}"
@@ -65,7 +63,6 @@ jobs:
           OPENAI_API_KEY:      ${{ secrets.OPENAI_API_KEY }}
         run: python main.py
 
-
       - name: Save video as artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,7 +71,7 @@ jobs:
           path: output/final_video.mp4
           retention-days: 14
 
-      - name: Commit updated topics.json (date history)
+      - name: Commit updated topics.json
         if: success()
         run: |
           git config user.name  "github-actions[bot]"
