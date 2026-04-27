@@ -47,8 +47,8 @@ jobs:
 
       - name: Generate and upload video
         env:
-          GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY }}
-          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+          GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY0526 }}
+          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS0526 }}
           # Optional — only set if you switch IMAGE_PROVIDER to "dalle" in config.py
           OPENAI_API_KEY:      ${{ secrets.OPENAI_API_KEY }}
         run: python main.py
