@@ -3,9 +3,13 @@ script_agent.py
 ===============
 Generates a Hindi YouTube Shorts script using Groq.
 
-Same slide schema as the English version (hook / content / cta) PLUS one new
-field per slide: `image_prompt` — a vivid English prompt used to generate the
-AI background image for that slide.
+KEY CHANGES vs previous version:
+1. Stricter "use the verified source" instruction — don't invent facts beyond
+   what topic_agent gave us.
+2. Image prompts now avoid trying to render specific named people (which
+   Pollinations.ai cannot do well). Instead they describe CONTEXTUAL SCENES:
+   stadiums, vintage objects, parades, locations, period-appropriate clothing,
+   newspaper headlines, etc. — things image generators handle reliably.
 """
 
 import json
@@ -18,50 +22,75 @@ _PROMPT_TEMPLATE = """
 Write a YouTube Shorts script in HINDI (Devanagari script) for the topic:
 "{topic}"
 
-The script tells Indian viewers WHY today's date is significant in Indian
-history / culture. It will be narrated by a female Hindi voice and shown
-on screen with AI-generated cinematic backgrounds.
+CRITICAL — FACT GROUNDING:
+- The topic above includes a "verified_source" quote pulled directly from
+  Wikipedia. ONLY write facts that are consistent with that source.
+- Do NOT invent additional dates, statistics, or details beyond what the
+  source establishes.
+- If the source doesn't specify a particular detail, don't fabricate it —
+  describe the event in general terms instead.
+
+The script tells Indian viewers WHY today's date matters in Indian history.
+It will be narrated by a female Hindi voice and shown on screen with
+AI-generated cinematic backgrounds.
 
 LANGUAGE RULES:
-- Pure conversational Hindi (Devanagari). Use simple everyday vocabulary
-  a 16-year-old understands. Hinglish loanwords are fine if natural
-  ("popular", "famous", "history" etc.).
+- Pure conversational Hindi (Devanagari). Simple everyday vocabulary.
 - End every Hindi sentence with "।" or "?" or "!" — never an English period.
 - No "namaste dosto" cliché unless it genuinely fits the hook.
 
 LENGTH:
-- Total spoken Hindi text across all slides ≈ 95-115 words.
-  This becomes ~38-45 seconds of voiceover at default speed.
+- Total spoken Hindi text across all slides ≈ 95-115 words → ~38-45 seconds.
 
 SLIDE STRUCTURE (5 slides total):
-- Slide 1 — type "hook":     a surprising/curious opener.
+- Slide 1 — type "hook":     surprising/curious opener.
 - Slides 2-4 — type "content": each tells one fact / detail.
 - Slide 5 — type "cta":      a "subscribe daily for itihaas" closer.
 
 PER-SLIDE FIELDS:
   type:         "hook" | "content" | "cta"
-  icon:         single relevant emoji (🇮🇳 🕉 ⚔️ 🎉 🌟 ✊ 🚀 etc.)
+  icon:         single relevant emoji (🇮🇳 🕉 ⚔️ 🎉 🌟 ✊ 🚀 🏏 etc.)
   main_text:    SHORT Hindi phrase, MAX 4 WORDS — shown big on screen overlay
-  sub_text:     ONE Hindi sentence, max 10 words — shown smaller below main_text
-  spoken_text:  the EXACT Hindi sentence(s) the narrator says for this slide
-  image_prompt: cinematic ENGLISH prompt for AI image generation describing the
-                visual scene for this slide. Photorealistic, dramatic lighting,
-                4K, 9:16 vertical composition, NO text in image. Avoid named
-                living people; describe historical figures generically (e.g.
-                "an Indian freedom fighter in white khadi at a podium").
+  sub_text:     ONE Hindi sentence, max 10 words — shown smaller
+  spoken_text:  the EXACT Hindi sentence(s) the narrator says
+  image_prompt: see CRITICAL IMAGE PROMPT RULES below
 
-CONTENT GUARDRAILS:
-- Stick to widely-accepted historical facts. Don't fabricate dates / numbers.
-- Don't make politically charged commentary; report the event neutrally.
-- Don't include offensive or discriminatory language.
-- For religious festivals, be respectful and inclusive.
-- For independence-era events, present them factually without jingoism.
+══════════════════════════════════════════════════════════════════════════════
+CRITICAL IMAGE PROMPT RULES — these matter for production quality:
+══════════════════════════════════════════════════════════════════════════════
+
+❌ DO NOT try to depict specific real living/historical people by name.
+   AI image generators cannot accurately render named individuals (Sachin
+   Tendulkar, Modi, Bhagat Singh, Gandhi, etc.). Asking for "Sachin Tendulkar
+   batting" will produce a generic cricketer that looks NOTHING like him.
+
+✅ INSTEAD, describe the SCENE / CONTEXT / OBJECTS around the person:
+   - For a cricketer's birthday → "vintage cricket bat and ball on green
+     turf, Mumbai stadium in golden hour light, packed crowd in background"
+   - For a freedom fighter's anniversary → "1940s Indian rally with
+     thousands holding tricolor flags, sepia-toned vintage photograph"
+   - For a scientific milestone → "telescope pointed at night sky over
+     Indian Space Research building, control room illuminated"
+   - For a battle/war event → "ancient Indian fort at sunset, sandstone
+     walls, warriors' silhouettes on the ramparts"
+   - For a festival → "diyas glowing in a temple courtyard at twilight,
+     marigold garlands, traditional Indian architecture"
+   - For a cultural figure (writer/musician) → "vintage typewriter and
+     handwritten manuscript on wooden desk, soft window light"
+
+✅ MAKE PROMPTS SPECIFIC. Mention era (1940s, 1980s, ancient), location
+   (Indian temple, Mumbai stadium, Delhi fort, Himalayan mountains), mood
+   (golden hour, dramatic stormy, festive), and 2-3 visual details
+   (clothing era, objects, colors, lighting).
+
+✅ EVERY image prompt should feel cinematic — like a frame from a movie
+   trailer about that event, not a literal portrait.
+
+══════════════════════════════════════════════════════════════════════════════
 
 OUTPUT FORMAT — CRITICAL:
 - Respond with ONLY a valid JSON object. No markdown fences, no preamble.
-- Use double quotes for all keys and string values.
-- Escape any double quotes inside string values.
-- No trailing commas.
+- Use double quotes everywhere. No trailing commas.
 
 Return ONLY valid JSON in exactly this shape:
 {{
@@ -71,8 +100,8 @@ Return ONLY valid JSON in exactly this shape:
       "icon":         "🇮🇳",
       "main_text":    "MAX 4 WORD HINDI HOOK",
       "sub_text":     "Short Hindi sentence under 10 words।",
-      "spoken_text":  "The exact Hindi sentence(s) narrator speaks for this slide।",
-      "image_prompt": "cinematic English image description for this scene"
+      "spoken_text":  "Hindi narration for this slide।",
+      "image_prompt": "specific cinematic SCENE description in English, NO named people"
     }},
     {{
       "type":         "content",
@@ -80,7 +109,7 @@ Return ONLY valid JSON in exactly this shape:
       "main_text":    "MAX 4 WORD HINDI",
       "sub_text":     "Short Hindi sentence under 10 words।",
       "spoken_text":  "Hindi narration for this slide।",
-      "image_prompt": "cinematic English image description"
+      "image_prompt": "specific cinematic SCENE description in English, NO named people"
     }},
     {{
       "type":         "content",
@@ -88,7 +117,7 @@ Return ONLY valid JSON in exactly this shape:
       "main_text":    "MAX 4 WORD HINDI",
       "sub_text":     "Short Hindi sentence under 10 words।",
       "spoken_text":  "Hindi narration for this slide।",
-      "image_prompt": "cinematic English image description"
+      "image_prompt": "specific cinematic SCENE description in English, NO named people"
     }},
     {{
       "type":         "content",
@@ -96,7 +125,7 @@ Return ONLY valid JSON in exactly this shape:
       "main_text":    "MAX 4 WORD HINDI",
       "sub_text":     "Short Hindi sentence under 10 words।",
       "spoken_text":  "Hindi narration for this slide।",
-      "image_prompt": "cinematic English image description"
+      "image_prompt": "specific cinematic SCENE description in English, NO named people"
     }},
     {{
       "type":         "cta",
@@ -104,7 +133,7 @@ Return ONLY valid JSON in exactly this shape:
       "main_text":    "रोज़ नया इतिहास",
       "sub_text":     "हर दिन एक नई कहानी।",
       "spoken_text":  "अगर पसंद आया तो चैनल को सब्सक्राइब ज़रूर करना। कल फिर मिलेंगे एक नई कहानी के साथ।",
-      "image_prompt": "warm sunrise over the Indian tricolor flag, cinematic, 9:16"
+      "image_prompt": "warm sunrise over the Indian tricolor flag waving against blue sky, cinematic, 9:16 vertical"
     }}
   ]
 }}
@@ -123,7 +152,7 @@ def _extract_json(raw: str) -> dict:
 
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not match:
-        raise ValueError(f"No JSON object found in response. Raw output:\n{raw[:500]}")
+        raise ValueError(f"No JSON object found. Raw output:\n{raw[:500]}")
     cleaned = match.group(0)
 
     try:
@@ -135,7 +164,7 @@ def _extract_json(raw: str) -> dict:
         from json_repair import repair_json
     except ImportError:
         raise ValueError(
-            "JSON parse failed and json-repair is not installed. "
+            "JSON parse failed and json-repair is not installed.\n"
             f"Raw output:\n{raw[:1000]}"
         )
 
@@ -178,9 +207,10 @@ class ScriptAgent:
                         {
                             "role": "system",
                             "content": (
-                                "You are a precise JSON generator who writes "
-                                "warm, accurate Hindi for short-form video. "
-                                "Always respond with ONE valid JSON object."
+                                "You are a precise JSON generator who writes warm, "
+                                "factually accurate Hindi for short-form video. "
+                                "You only use facts provided in the topic source — "
+                                "you never invent dates or details."
                             ),
                         },
                         {"role": "user", "content": prompt},
