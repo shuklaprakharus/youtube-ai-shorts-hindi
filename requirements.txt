@@ -1,0 +1,22 @@
+# AI — Groq (free tier, 14400 requests/day) — REUSED
+groq>=0.9.0
+json-repair>=0.25.0
+
+# Hindi text-to-speech (free, no API key, neural female voice)
+edge-tts>=6.1.10
+
+# gTTS Hindi as fallback if edge-tts is unreachable
+gTTS>=2.5.0
+mutagen>=1.47.0          # read MP3 duration
+
+# AI image generation (Pollinations is just an HTTP GET — no SDK needed)
+requests>=2.31.0
+
+# Image / video
+Pillow>=10.3.0
+numpy>=1.24.0
+
+# YouTube upload — REUSED
+google-api-python-client>=2.130.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
