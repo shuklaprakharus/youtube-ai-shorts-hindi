@@ -23,6 +23,9 @@ from config import (
     SUBTITLE_FONT_NAME,
 )
 
+# Crossfade overlap between consecutive slides, in seconds.
+TRANS_DUR = 0.4
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 def calculate_slide_durations(slides_data: list, total_audio_sec: float) -> list:
@@ -145,7 +148,12 @@ def _encode_slide_clip(slide_path: str, duration: float,
 
 # ─────────────────────────────────────────────────────────────────────────────
 def _xfade_clips(clip_paths: list, durations: list, output_path: str,
-                 transition: str = "fade", trans_dur: float = 0.4):
+                 transition: str = "fade", trans_dur: float = TRANS_DUR):
+    """
+    `durations` are the visible per-slide durations. Each non-final clip must
+    be encoded `trans_dur` longer than its entry here, so the crossfade
+    consumes the extension and the output length stays sum(durations).
+    """
     n = len(clip_paths)
 
     inputs = []
@@ -157,7 +165,7 @@ def _xfade_clips(clip_paths: list, durations: list, output_path: str,
     prev_label = "[0:v]"
 
     for i in range(1, n):
-        running_offset += durations[i - 1] - trans_dur
+        running_offset += durations[i - 1]
         curr_label = f"[v{i}]" if i < n - 1 else "[vout]"
         filter_parts.append(
             f"{prev_label}[{i}:v]xfade="
@@ -196,9 +204,14 @@ def assemble_video(slide_paths: list,
     print("     · Encoding Ken Burns clips …")
     clip_paths = []
     directions = ["in", "out"]
+    last = len(slide_paths) - 1
     for i, (path, dur) in enumerate(zip(slide_paths, durations)):
         direction = directions[i % 2]
-        clip = _encode_slide_clip(path, dur, i, direction)
+        # Non-final clips carry an extra TRANS_DUR that the crossfade eats;
+        # without it the video ends up shorter than the voiceover and
+        # `-shortest` clips the audio tail.
+        encode_dur = dur if i == last else dur + TRANS_DUR
+        clip = _encode_slide_clip(path, encode_dur, i, direction)
         clip_paths.append(clip)
 
     temp_silent = os.path.join(OUTPUT_DIR, "_temp_silent.mp4")
