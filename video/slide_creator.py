@@ -358,13 +358,12 @@ def _render_overlay(slide_data: dict, idx: int, total: int, theme: dict) -> str:
         )
         draw.text((px_left, py_top), main_text, font=cap_font, fill=(255, 255, 255))
 
-    # ── 5. Bottom dark strip with sub_text (Hindi) ───────────────────────────
+    # ── 5. Bottom dark strip with sub_text (omitted when slide has none) ─────
     sub_text = slide_data.get("sub_text", "").strip()
     strip_h = int(H * 0.24)
     strip_y = H - strip_h - 8
-    draw.rectangle([(0, strip_y), (W, H - 8)], fill=(15, 13, 30, 220))
-
     if sub_text:
+        draw.rectangle([(0, strip_y), (W, H - 8)], fill=(15, 13, 30, 220))
         sub_font = _load_hindi_font(64)
         # Vertical-center the sub_text in the strip
         avg_char = sub_font.getbbox("क")[2] or 32
@@ -380,9 +379,12 @@ def _render_overlay(slide_data: dict, idx: int, total: int, theme: dict) -> str:
             x = (W - tw) // 2
             draw.text((x, text_y), line, font=sub_font, fill=(255, 235, 180))  # warm gold
             text_y += line_h
+        dot_anchor = strip_y
+    else:
+        dot_anchor = H - 80   # no strip — dots sit near the bottom edge
 
-    # ── 6. Progress dots above the strip ─────────────────────────────────────
-    dot_y = strip_y - 32
+    # ── 6. Progress dots above the strip (or bottom edge) ────────────────────
+    dot_y = dot_anchor - 32
     dot_r = 9
     dot_gap = 32
     total_w = total * (dot_r * 2) + (total - 1) * (dot_gap - dot_r * 2)
