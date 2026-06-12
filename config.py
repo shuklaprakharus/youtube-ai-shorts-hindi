@@ -37,6 +37,11 @@ MUSIC_VOLUME = 0.22   # music level relative to voice (0.0–1.0)
 IMAGE_PROVIDER = "pollinations"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")  # only needed for dalle
 
+# ─── Pexels stock footage/photos (free API key from pexels.com/api) ──────────
+# When set, slides prefer vertical stock videos, then stock photos, before
+# falling back to the AI image provider / procedural gradients.
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
+
 # ─── YouTube upload settings ─────────────────────────────────────────────────
 YOUTUBE_CATEGORY_ID = "27"          # Education
 YOUTUBE_PRIVACY     = "public"      # "public" | "private" | "unlisted"

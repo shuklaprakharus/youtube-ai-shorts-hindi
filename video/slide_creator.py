@@ -17,6 +17,7 @@ Pipeline per slide:
 import os
 import math
 import random
+import re
 import time
 import urllib.parse
 import datetime
@@ -30,6 +31,7 @@ from config import (
     SLIDES_DIR, BG_DIR, THEMES,
     HINDI_FONT_CANDIDATES,
     IMAGE_PROVIDER, OPENAI_API_KEY,
+    PEXELS_API_KEY,
 )
 
 
@@ -157,6 +159,88 @@ def _generate_bg_image(prompt: str, idx: int) -> Path:
         return _gen_bg_fallback(out, idx)
 
 
+# ───────────────────────── Pexels stock footage/photos ─────────────────────
+
+def _stock_query(slide_data: dict) -> str:
+    query = (slide_data.get("stock_query") or "").strip()
+    if query:
+        return query
+    # Fall back to the first few English words of the image prompt
+    words = re.findall(r"[A-Za-z]+", slide_data.get("image_prompt", ""))
+    return " ".join(words[:5]) or "cinematic india"
+
+
+def _pexels_get(url: str, params: dict) -> dict:
+    resp = requests.get(
+        url,
+        headers={"Authorization": PEXELS_API_KEY},
+        params=params,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _pexels_video(query: str, idx: int) -> str | None:
+    """Download a vertical stock video clip for the slide, or None."""
+    if not PEXELS_API_KEY:
+        return None
+    try:
+        data = _pexels_get(
+            "https://api.pexels.com/videos/search",
+            {"query": query, "orientation": "portrait", "per_page": 12},
+        )
+        videos = data.get("videos") or []
+        rng = random.Random(datetime.date.today().toordinal() * 31 + idx)
+        rng.shuffle(videos)
+        for video in videos:
+            files = [
+                f for f in video.get("video_files", [])
+                if f.get("link") and f.get("width") and f.get("height")
+                and f["height"] > f["width"]            # portrait only
+                and 960 <= f["height"] <= 2200          # enough pixels, sane size
+            ]
+            if not files:
+                continue
+            best = max(files, key=lambda f: f["height"])
+            blob = requests.get(best["link"], timeout=120)
+            blob.raise_for_status()
+            Path(BG_DIR).mkdir(parents=True, exist_ok=True)
+            out = Path(BG_DIR) / f"bgv_{idx:02d}.mp4"
+            out.write_bytes(blob.content)
+            return str(out)
+    except Exception as e:
+        print(f"     ⚠️  Pexels video search failed ({e})")
+    return None
+
+
+def _pexels_photo(query: str, idx: int) -> str | None:
+    """Download a vertical stock photo for the slide, or None."""
+    if not PEXELS_API_KEY:
+        return None
+    try:
+        data = _pexels_get(
+            "https://api.pexels.com/v1/search",
+            {"query": query, "orientation": "portrait", "per_page": 12},
+        )
+        photos = data.get("photos") or []
+        rng = random.Random(datetime.date.today().toordinal() * 31 + idx)
+        rng.shuffle(photos)
+        for photo in photos:
+            src = (photo.get("src") or {}).get("portrait") or (photo.get("src") or {}).get("large2x")
+            if not src:
+                continue
+            blob = requests.get(src, timeout=60)
+            blob.raise_for_status()
+            Path(BG_DIR).mkdir(parents=True, exist_ok=True)
+            out = Path(BG_DIR) / f"bg_{idx:02d}.jpg"
+            out.write_bytes(blob.content)
+            return str(out)
+    except Exception as e:
+        print(f"     ⚠️  Pexels photo search failed ({e})")
+    return None
+
+
 # ───────────────────────── compositing helpers ────────────────────────────
 
 def _resize_cover(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
@@ -237,23 +321,21 @@ def _draw_wrapped_text(draw, text, font, y, color, max_width, line_gap=14):
     return y
 
 
-# ───────────────────────── single slide ────────────────────────────────────
+# ───────────────────────── slide overlay + compositing ─────────────────────
 
-def _make_slide(slide_data: dict, idx: int, total: int,
-                bg_image_path: Path, theme: dict) -> str:
+def _render_overlay(slide_data: dict, idx: int, total: int, theme: dict) -> str:
+    """
+    Render every UI element (legibility scrims, accent bars, caption pill,
+    text strip, progress dots) on a TRANSPARENT canvas. Composited over photo
+    backgrounds in Python and over stock-video backgrounds by ffmpeg.
+    """
     Path(SLIDES_DIR).mkdir(parents=True, exist_ok=True)
     W, H = VIDEO_WIDTH, VIDEO_HEIGHT
     accent = theme["accent"]
 
-    # ── 1. Load AI background and resize to fill canvas ──────────────────────
-    bg = Image.open(bg_image_path).convert("RGBA")
-    bg = _resize_cover(bg, W, H)
-
-    # ── 2. Apply gradient overlays for legibility ────────────────────────────
-    bg = _apply_top_caption_gradient(bg)
-    bg = _apply_dark_gradient(bg, strength=0.6)
-
-    img = bg.convert("RGBA")
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    img = _apply_top_caption_gradient(img)
+    img = _apply_dark_gradient(img, strength=0.6)
     draw = ImageDraw.Draw(img)
 
     # ── 3. Top accent bar (India-themed) ─────────────────────────────────────
@@ -322,8 +404,17 @@ def _make_slide(slide_data: dict, idx: int, total: int,
     # ── 7. Bottom accent bar ─────────────────────────────────────────────────
     draw.rectangle([(0, H - 8), (W, H)], fill=(*accent, 255))
 
-    # ── Save ──────────────────────────────────────────────────────────────────
-    out = img.convert("RGB")
+    path = os.path.join(SLIDES_DIR, f"overlay_{idx:02d}.png")
+    img.save(path, "PNG")
+    return path
+
+
+def _compose_slide(bg_image_path: str, overlay_path: str, idx: int) -> str:
+    """Static slide: background photo under the transparent UI overlay."""
+    bg = Image.open(bg_image_path).convert("RGBA")
+    bg = _resize_cover(bg, VIDEO_WIDTH, VIDEO_HEIGHT)
+    overlay = Image.open(overlay_path).convert("RGBA")
+    out = Image.alpha_composite(bg, overlay).convert("RGB")
     path = os.path.join(SLIDES_DIR, f"slide_{idx:02d}.png")
     out.save(path, "PNG")
     return path
@@ -333,17 +424,36 @@ def _make_slide(slide_data: dict, idx: int, total: int,
 
 def create_slides(slides: list) -> list:
     """
-    Create all slide PNGs (with AI-generated backgrounds).
-    Returns list of file paths in order.
+    Create one background per slide. Preference order:
+      1. Pexels stock VIDEO  (needs PEXELS_API_KEY)
+      2. Pexels stock photo  (needs PEXELS_API_KEY)
+      3. AI image provider   (pollinations/dalle)
+      4. Procedural themed gradient
+    Returns a list of entries for assemble_video:
+      str  → finished slide PNG (static background, Ken Burns motion)
+      dict → {"video": stock_clip_path, "overlay": transparent_ui_png}
     """
     theme_idx = datetime.date.today().toordinal() % len(THEMES)
     theme = THEMES[theme_idx]
 
-    paths = []
+    entries = []
+    total = len(slides)
     for i, slide_data in enumerate(slides):
-        prompt = slide_data.get("image_prompt") or "warm cinematic Indian historical scene"
-        bg_path = _generate_bg_image(prompt, i)
-        slide_path = _make_slide(slide_data, i, len(slides), bg_path, theme)
-        paths.append(slide_path)
-        print(f"     → Slide {i + 1}/{len(slides)}: {slide_data.get('type', '?')}")
-    return paths
+        overlay = _render_overlay(slide_data, i, total, theme)
+        query = _stock_query(slide_data)
+
+        video = _pexels_video(query, i)
+        if video:
+            entries.append({"video": video, "overlay": overlay})
+            print(f"     → Slide {i + 1}/{total}: {slide_data.get('type', '?')} (stock video: {query})")
+            continue
+
+        bg_path = _pexels_photo(query, i)
+        kind = "stock photo"
+        if not bg_path:
+            prompt = slide_data.get("image_prompt") or "warm cinematic Indian scene"
+            bg_path = _generate_bg_image(prompt, i)
+            kind = "generated"
+        entries.append(_compose_slide(bg_path, overlay, i))
+        print(f"     → Slide {i + 1}/{total}: {slide_data.get('type', '?')} ({kind})")
+    return entries

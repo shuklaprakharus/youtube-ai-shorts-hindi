@@ -107,9 +107,42 @@ def _fmt_srt_time(seconds: float) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _encode_slide_clip(slide_path: str, duration: float,
+def _encode_slide_clip(slide_entry, duration: float,
                        clip_index: int, zoom_direction: str) -> str:
+    """
+    Encode one slide clip. `slide_entry` is either a finished slide PNG path
+    (static background → Ken Burns motion) or a dict with a stock video
+    background plus a transparent UI overlay PNG:
+        {"video": path.mp4, "overlay": path.png}
+    """
     clip_path = os.path.join(OUTPUT_DIR, f"_clip_{clip_index:03d}.mp4")
+
+    if isinstance(slide_entry, dict):
+        # Loop the muted stock clip to cover the slide duration, scale/crop
+        # to fill the frame, then put the UI overlay on top.
+        vf = (
+            f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,"
+            f"crop={VIDEO_WIDTH}:{VIDEO_HEIGHT},setsar=1,fps={FPS}[bg];"
+            f"[bg][1:v]overlay=0:0[v]"
+        )
+        cmd = [
+            "ffmpeg", "-y",
+            "-stream_loop", "-1", "-i", os.path.abspath(slide_entry["video"]),
+            "-i", os.path.abspath(slide_entry["overlay"]),
+            "-filter_complex", vf,
+            "-map", "[v]",
+            "-t", f"{duration:.4f}",
+            "-an",
+            "-c:v", "libx264",
+            "-preset", "faster",
+            "-crf", "22",
+            "-pix_fmt", "yuv420p",
+            clip_path,
+        ]
+        _run(cmd, f"Stock video clip {clip_index + 1}")
+        return clip_path
+
+    slide_path = slide_entry
 
     PAD   = int(VIDEO_WIDTH  * 0.10)
     PAD_H = int(VIDEO_HEIGHT * 0.10)
@@ -225,17 +258,17 @@ def assemble_video(slide_paths: list,
                    music_genre: str = None) -> str:
     Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
-    print("     · Encoding Ken Burns clips …")
+    print("     · Encoding slide clips …")
     clip_paths = []
     directions = ["in", "out"]
     last = len(slide_paths) - 1
-    for i, (path, dur) in enumerate(zip(slide_paths, durations)):
+    for i, (entry, dur) in enumerate(zip(slide_paths, durations)):
         direction = directions[i % 2]
         # Non-final clips carry an extra TRANS_DUR that the crossfade eats;
         # without it the video ends up shorter than the voiceover and
         # `-shortest` clips the audio tail.
         encode_dur = dur if i == last else dur + TRANS_DUR
-        clip = _encode_slide_clip(path, encode_dur, i, direction)
+        clip = _encode_slide_clip(entry, encode_dur, i, direction)
         clip_paths.append(clip)
 
     temp_silent = os.path.join(OUTPUT_DIR, "_temp_silent.mp4")
