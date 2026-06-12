@@ -16,6 +16,7 @@ Pipeline per slide:
 
 import os
 import math
+import random
 import time
 import urllib.parse
 import datetime
@@ -71,8 +72,12 @@ def _gen_bg_pollinations(prompt: str, out_path: Path, seed: int) -> Path:
             return out_path
         except requests.RequestException as e:
             last_err = e
+            status = getattr(e.response, "status_code", None)
+            # 4xx (except 429) won't resolve by retrying — e.g. 402 paywall
+            if status and status != 429 and 400 <= status < 500:
+                break
             time.sleep(2 ** attempt)
-    raise RuntimeError(f"Pollinations failed after 3 attempts: {last_err}")
+    raise RuntimeError(f"Pollinations failed: {last_err}")
 
 
 def _gen_bg_dalle(prompt: str, out_path: Path) -> Path:
@@ -96,6 +101,41 @@ def _gen_bg_dalle(prompt: str, out_path: Path) -> Path:
     return out_path
 
 
+def _gen_bg_fallback(out_path: Path, idx: int) -> Path:
+    """
+    Procedural themed background — vertical gradient in the day's theme
+    colour with soft glow circles. Used when the AI image provider fails,
+    so a third-party outage or paywall can never kill the daily run.
+    """
+    w, h = VIDEO_WIDTH, VIDEO_HEIGHT
+    accent = THEMES[datetime.date.today().toordinal() % len(THEMES)]["accent"]
+    rng = random.Random(idx * 7919 + datetime.date.today().toordinal())
+
+    img = Image.new("RGB", (w, h))
+    draw = ImageDraw.Draw(img)
+    top = tuple(int(c * 0.15) for c in accent)
+    bottom = tuple(min(255, int(c * 0.6) + 25) for c in accent)
+    for y in range(h):
+        t = y / (h - 1)
+        draw.line(
+            [(0, y), (w, y)],
+            fill=tuple(int(a + (b - a) * t) for a, b in zip(top, bottom)),
+        )
+
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    tint = tuple(min(255, c + 80) for c in accent)
+    for _ in range(4):
+        r = rng.randint(180, 420)
+        cx, cy = rng.randint(0, w), rng.randint(0, h)
+        odraw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*tint, 70))
+    overlay = overlay.filter(ImageFilter.GaussianBlur(120))
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+    img.save(out_path, "JPEG", quality=90)
+    return out_path
+
+
 def _generate_bg_image(prompt: str, idx: int) -> Path:
     """Generate one background image. Returns Path to JPG file."""
     Path(BG_DIR).mkdir(parents=True, exist_ok=True)
@@ -108,9 +148,13 @@ def _generate_bg_image(prompt: str, idx: int) -> Path:
 
     print(f"     → AI background {idx + 1}: {prompt[:60]}…")
 
-    if IMAGE_PROVIDER == "dalle":
-        return _gen_bg_dalle(styled, out)
-    return _gen_bg_pollinations(styled, out, seed=idx * 1000 + datetime.date.today().toordinal())
+    try:
+        if IMAGE_PROVIDER == "dalle":
+            return _gen_bg_dalle(styled, out)
+        return _gen_bg_pollinations(styled, out, seed=idx * 1000 + datetime.date.today().toordinal())
+    except Exception as e:
+        print(f"     ⚠️  AI background failed ({e}); using themed fallback background.")
+        return _gen_bg_fallback(out, idx)
 
 
 # ───────────────────────── compositing helpers ────────────────────────────
