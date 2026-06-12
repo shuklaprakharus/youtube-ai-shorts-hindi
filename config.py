@@ -24,6 +24,13 @@ VOICE_RATE   = "+0%"     # speed: -50% .. +100%
 VOICE_PITCH  = "+0Hz"    # pitch shift
 VOICE_VOLUME = "+0%"
 
+# ─── Background music bed (optional) ─────────────────────────────────────────
+# Drop royalty-free instrumental MP3s into assets/music/ (optionally inside a
+# genre subfolder). When present, one is looped and ducked under the voice.
+# See assets/music/README.md for sources. No files → plain voiceover.
+MUSIC_DIR    = "assets/music"
+MUSIC_VOLUME = 0.22   # music level relative to voice (0.0–1.0)
+
 # ─── AI background image provider ────────────────────────────────────────────
 # "pollinations" → free, no API key (default)
 # "dalle"        → requires OPENAI_API_KEY (~$0.04/image)

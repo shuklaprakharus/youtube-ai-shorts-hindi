@@ -13,14 +13,16 @@ Pipeline:
   4. Mix in audio → final_video.mp4
 """
 
+import datetime
 import os
 import math
+import random
 import subprocess
 from pathlib import Path
 from config import (
     VIDEO_WIDTH, VIDEO_HEIGHT, FPS,
     VIDEO_FILE, OUTPUT_DIR, MIN_SLIDE_DURATION,
-    SUBTITLE_FONT_NAME,
+    SUBTITLE_FONT_NAME, MUSIC_DIR, MUSIC_VOLUME,
 )
 
 # Crossfade overlap between consecutive slides, in seconds.
@@ -195,10 +197,32 @@ def _xfade_clips(clip_paths: list, durations: list, output_path: str,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def _pick_music_track(genre: str = None) -> str | None:
+    """
+    Choose an instrumental from assets/music/<genre>/, falling back to any
+    track under assets/music/. Returns None when no music is bundled, in
+    which case the video gets the plain voiceover.
+    """
+    base = Path(MUSIC_DIR)
+    candidates = []
+    if genre:
+        genre_dir = base / genre.strip().lower()
+        if genre_dir.is_dir():
+            candidates = sorted(genre_dir.glob("*.mp3"))
+    if not candidates and base.is_dir():
+        candidates = sorted(base.rglob("*.mp3"))
+    if not candidates:
+        return None
+    rng = random.Random(datetime.date.today().toordinal())
+    return str(rng.choice(candidates))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def assemble_video(slide_paths: list,
                    audio_file:  str,
                    durations:   list,
-                   slides_data: list = None) -> str:
+                   slides_data: list = None,
+                   music_genre: str = None) -> str:
     Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
     print("     · Encoding Ken Burns clips …")
@@ -260,17 +284,50 @@ def assemble_video(slide_paths: list,
     else:
         video_before_audio = temp_silent
 
-    cmd_audio = [
-        "ffmpeg", "-y",
-        "-i", video_before_audio,
-        "-i", audio_file,
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        VIDEO_FILE,
-    ]
-    _run(cmd_audio, "Adding audio track")
+    music_track = _pick_music_track(music_genre)
+    mixed = False
+    if music_track:
+        # Loop the instrumental under the voice at low volume with fades.
+        # amix duration=first ends the mix when the voice (input 1) ends.
+        fade_out_start = max(0.0, sum(durations) - 2.5)
+        filter_audio = (
+            f"[2:a]volume={MUSIC_VOLUME},"
+            f"afade=t=in:d=1.5,"
+            f"afade=t=out:st={fade_out_start:.3f}:d=2.5[music];"
+            f"[1:a][music]amix=inputs=2:duration=first:"
+            f"dropout_transition=0:normalize=0[aout]"
+        )
+        cmd_music = [
+            "ffmpeg", "-y",
+            "-i", video_before_audio,
+            "-i", audio_file,
+            "-stream_loop", "-1", "-i", music_track,
+            "-filter_complex", filter_audio,
+            "-map", "0:v", "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            VIDEO_FILE,
+        ]
+        try:
+            _run(cmd_music, f"Adding voice + music bed ({os.path.basename(music_track)})")
+            mixed = True
+        except RuntimeError as exc:
+            print(f"     ⚠️  Music mix failed; falling back to voice only.\n{exc}")
+
+    if not mixed:
+        cmd_audio = [
+            "ffmpeg", "-y",
+            "-i", video_before_audio,
+            "-i", audio_file,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            VIDEO_FILE,
+        ]
+        _run(cmd_audio, "Adding audio track")
 
     for f in [temp_silent, temp_subbed]:
         try:

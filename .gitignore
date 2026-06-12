@@ -9,3 +9,7 @@ assets/generated/
 *.mp3
 *.log
 google_application_credentials.json
+
+# Bundled royalty-free music beds are tracked despite *.mp3 above
+!assets/music/**/*.mp3
+!assets/music/*.mp3
