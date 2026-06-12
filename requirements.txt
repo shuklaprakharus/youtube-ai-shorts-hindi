@@ -1,5 +1,5 @@
-# AI — Groq (free tier, 14400 requests/day) — REUSED
-groq>=0.9.0
+# AI — Gemini
+google-genai>=1.0.0
 json-repair>=0.25.0
 
 # Hindi text-to-speech (free, no API key, neural female voice)
@@ -20,3 +20,6 @@ numpy>=1.24.0
 google-api-python-client>=2.130.0
 google-auth-httplib2>=0.2.0
 google-auth-oauthlib>=1.2.0
+
+# Google Cloud Storage archive
+google-cloud-storage>=2.16.0

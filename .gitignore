@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+client_secrets.json
+output/
+assets/generated/
+*.mp4
+*.mp3
+*.log
+google_application_credentials.json

@@ -11,6 +11,7 @@ Runs every day via GitHub Actions. Zero manual steps required.
 import os
 import sys
 import datetime
+import json
 import traceback
 from pathlib import Path
 
@@ -39,6 +40,10 @@ def main() -> int:
         from video.slide_creator import create_slides
         from video.assembler     import assemble_video, calculate_slide_durations
         from uploader.youtube    import upload_to_youtube
+        from uploader.storage    import archive_run
+        from preflight           import validate_environment
+
+        validate_environment(require_youtube=True)
 
         # ── 1. Pick today's topic ────────────────────────────────────────────
         print("\n📌  [1/6] Picking topic …")
@@ -83,6 +88,19 @@ def main() -> int:
             description  = seo["description"],
             tags         = seo["tags"],
         )
+
+        run_id = os.environ.get("GITHUB_RUN_ID") or datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        metadata = {
+            "date": datetime.date.today().isoformat(),
+            "run_id": run_id,
+            "topic": json.loads(topic),
+            "seo": seo,
+            "youtube_url": url,
+            "slides": script_data["slides"],
+        }
+
+        print("\n🪣  Archiving run artifacts …")
+        archive_run(video_file, metadata, run_id)
 
         banner(f"✅  Published → {url}")
         return 0

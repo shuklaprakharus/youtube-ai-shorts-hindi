@@ -33,21 +33,25 @@ jobs:
       - name: Prepare output directories
         run: mkdir -p output/slides output/backgrounds
 
-      - name: Debug check Groq key
+      - name: Preflight secrets
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY0526 }}
-        run: |
-          if [ -z "$GROQ_API_KEY" ]; then
-            echo "GROQ_API_KEY is EMPTY"
-            exit 1
-          fi
-          echo "GROQ_API_KEY length is ${#GROQ_API_KEY}"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+          REQUIRE_GCS_ARCHIVE: ${{ vars.REQUIRE_GCS_ARCHIVE || 'false' }}
+        run: python -c "from preflight import validate_environment; validate_environment(require_youtube=True); print('Preflight OK')"
 
       - name: Generate and upload video
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY0526 }}
-          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS0526 }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          GCS_PREFIX: ${{ vars.GCS_PREFIX || 'youtube-ai-shorts-hindi' }}
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+          REQUIRE_GCS_ARCHIVE: ${{ vars.REQUIRE_GCS_ARCHIVE || 'false' }}
         run: python main.py
 
       - name: Save video as artifact
@@ -55,5 +59,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: short-run-${{ github.run_number }}
-          path: output/final_video.mp4
+          path: |
+            output/final_video.mp4
+            output/run_metadata.json
           retention-days: 14
+
+      - name: Commit topic history
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add topics.json
+          git diff --cached --quiet || git commit -m "Update covered-events history"
+          git push

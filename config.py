@@ -1,12 +1,12 @@
 """
-config.py — Central configuration for AI YouTube Shorts Generator (Hindi / India edition)
+config.py — Central configuration for Aaj Ka Itihaas (daily Hindi history Shorts).
 All settings in one place. Tweak here, not deep in the code.
 """
 import os
 
-# ─── Groq API (free tier, no quota issues) — reused from English version ─────
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL   = "llama-3.3-70b-versatile"   # better Hindi quality than 8b-instant
+# ─── Gemini API ──────────────────────────────────────────────────────────────
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 # ─── Video dimensions (YouTube Shorts = 9:16 vertical) ───────────────────────
 VIDEO_WIDTH  = 1080
@@ -31,9 +31,14 @@ IMAGE_PROVIDER = "pollinations"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")  # only needed for dalle
 
 # ─── YouTube upload settings ─────────────────────────────────────────────────
-YOUTUBE_CATEGORY_ID = "27"          # Education (changed from 28 = Science/Tech)
+YOUTUBE_CATEGORY_ID = "27"          # Education
 YOUTUBE_PRIVACY     = "public"      # "public" | "private" | "unlisted"
 YOUTUBE_LANGUAGE    = "hi"          # Hindi
+
+# ─── Google Cloud Storage archive ────────────────────────────────────────────
+GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "")
+GCS_PREFIX = os.environ.get("GCS_PREFIX", "youtube-ai-shorts-hindi")
+REQUIRE_GCS_ARCHIVE = os.environ.get("REQUIRE_GCS_ARCHIVE", "false").lower() == "true"
 
 # ─── File / folder paths ─────────────────────────────────────────────────────
 OUTPUT_DIR  = "output"
@@ -41,7 +46,7 @@ SLIDES_DIR  = "output/slides"
 BG_DIR      = "output/backgrounds"
 AUDIO_FILE  = "output/voiceover.mp3"
 VIDEO_FILE  = "output/final_video.mp4"
-TOPICS_FILE = "topics.json"   # repurposed as a date/event history file
+TOPICS_FILE = "topics.json"   # covered-events history file (dedup)
 
 # ─── Hindi font for slide overlays + subtitles ───────────────────────────────
 # Searched in order; first match wins. Workflow installs Noto Devanagari via apt.

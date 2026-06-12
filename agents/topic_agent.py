@@ -3,21 +3,22 @@ topic_agent.py
 ==============
 Finds today's most significant date-anniversary or event tied to INDIA.
 
-KEY CHANGE: Instead of asking the LLM "what happened on this date?" (which
-hallucinates badly for specific calendar dates), we fetch the actual list of
-events from Wikipedia's free "On this day" API, then ask the LLM to PICK the
-most India-relevant one and write the headline.
-
-This prevents the model from inventing dates like "Sachin Tendulkar's birthday
-is today" when it's actually 3 days off.
+Instead of asking the LLM "what happened on this date?" (which hallucinates
+badly for specific calendar dates), we fetch the actual list of events from
+Wikipedia's free "On this day" API, then ask Gemini to PICK the most
+India-relevant one and write the headline. This prevents the model from
+inventing dates like "Sachin Tendulkar's birthday is today" when it's
+actually 3 days off.
 """
 
+import datetime
 import json
 import re
-import datetime
+
 import requests
-from groq import Groq
-from config import GROQ_API_KEY, GROQ_MODEL, TOPICS_FILE
+
+from config import TOPICS_FILE
+from agents.gemini_client import generate_json
 
 
 # ─── Wikipedia "On this day" — free, no API key, factually accurate ──────────
@@ -25,11 +26,8 @@ from config import GROQ_API_KEY, GROQ_MODEL, TOPICS_FILE
 def _fetch_wikipedia_on_this_day(target_date: datetime.date) -> dict:
     """
     Wikipedia's REST API returns curated lists of events, births, and deaths
-    for a given calendar day. This is what powers the "On This Day" feature
-    on Wikipedia's main page — meaning it's been editorially vetted by editors
-    over the years.
-
-    Endpoint:  https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/all/MM/DD
+    for a given calendar day — the same data behind the "On This Day" feature
+    on Wikipedia's main page, editorially vetted over the years.
     """
     url = (
         "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/all/"
@@ -72,7 +70,7 @@ def _format_events_for_prompt(wiki_data: dict, max_per_section: int = 25) -> str
     return "\n".join(lines) if lines else "(no events found)"
 
 
-# ─── LLM picker ──────────────────────────────────────────────────────────────
+# ─── Gemini picker ───────────────────────────────────────────────────────────
 
 _PICKER_PROMPT = """You are an Indian history content editor.
 
@@ -110,11 +108,13 @@ Respond with STRICT JSON only — no markdown, no commentary:
 """
 
 
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    return text.strip()
+def _extract_json(raw: str) -> dict:
+    cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if not match:
+        raise ValueError(f"No JSON object found in Gemini response:\n{raw[:500]}")
+    return json.loads(match.group(0))
 
 
 # ─── Hindi date formatting ───────────────────────────────────────────────────
@@ -132,9 +132,6 @@ def _format_hindi_date(target_date: datetime.date) -> str:
 # ─── TopicAgent ──────────────────────────────────────────────────────────────
 
 class TopicAgent:
-    def __init__(self):
-        self.client = Groq(api_key=GROQ_API_KEY)
-
     def get_today_topic(self) -> str:
         today = datetime.date.today()
         history = self._load()
@@ -150,46 +147,32 @@ class TopicAgent:
                 "Cannot proceed without verified events."
             ) from e
 
-        # 2. Ask LLM to pick the best one
+        # 2. Ask Gemini to pick the best one
         recent = self._format_recent(history)
-        prompt = _PICKER_PROMPT.format(
-            date_human  = today.strftime("%d %B"),
-            month       = today.month,
-            day         = today.day,
-            wiki_events = wiki_events_text,
-            recent      = recent or "none",
+        raw = generate_json(
+            prompt=_PICKER_PROMPT.format(
+                date_human=today.strftime("%d %B"),
+                month=today.month,
+                day=today.day,
+                wiki_events=wiki_events_text,
+                recent=recent or "none",
+            ),
+            system_instruction=(
+                "You are a precise JSON generator who only uses verified facts "
+                "provided to you. Never invent dates or events. Respond with "
+                "ONE valid JSON object."
+            ),
+            max_tokens=1200,
         )
-
-        response = self.client.chat.completions.create(
-            model    = GROQ_MODEL,
-            messages = [
-                {"role": "system",
-                 "content": (
-                     "You are a precise JSON generator who only uses verified facts "
-                     "provided to you. Never invent dates or events. Respond with "
-                     "ONE valid JSON object."
-                 )},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens      = 800,
-            temperature     = 0.3,
-            response_format = {"type": "json_object"},
-        )
-        raw = _strip_fences(response.choices[0].message.content)
-
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"TopicAgent — invalid JSON from Groq:\n{raw}") from e
+        payload = _extract_json(raw)
 
         # 3. Validate that the picked event actually appears in Wikipedia data
         # (catches LLM hallucination as a safety net)
         quote = payload.get("wikipedia_quote", "").strip()
         if quote and quote.lower() not in wiki_events_text.lower():
-            print(f"     ⚠️  WARNING: LLM-picked quote not found in Wikipedia data!")
+            print("     ⚠️  WARNING: LLM-picked quote not found in Wikipedia data!")
             print(f"        Quote: {quote[:100]}")
-            print(f"        Falling back to first India-tagged event...")
-            # Best-effort fallback: use the first India-tagged event we can find
+            print("        Falling back to first India-tagged event...")
             india_lines = [
                 line for line in wiki_events_text.splitlines()
                 if "[INDIA]" in line
@@ -201,10 +184,7 @@ class TopicAgent:
 
         # Always overwrite the Hindi date with our deterministic format
         payload["date_hindi"] = _format_hindi_date(today)
-
-        # Stash for downstream agents
-        self.context = payload
-        self.context["date_iso"] = today.isoformat()
+        payload["date_iso"] = today.isoformat()
 
         # Append to history
         history.setdefault("history", []).append({
@@ -218,14 +198,7 @@ class TopicAgent:
         history["history"] = history["history"][-365:]
         self._save(history)
 
-        topic_str = (
-            f"{payload['date_hindi']} — {payload['headline_hindi']} "
-            f"(English: {payload['main_event_en']}, "
-            f"year: {payload.get('year', 'n/a')}, "
-            f"category: {payload.get('category', 'general')}, "
-            f"verified_source: \"{payload.get('wikipedia_quote', '')[:200]}\")"
-        )
-        return topic_str
+        return json.dumps(payload, ensure_ascii=False)
 
     def _format_recent(self, history: dict) -> str:
         items = history.get("history", [])[-30:]
@@ -242,6 +215,6 @@ class TopicAgent:
         except (FileNotFoundError, json.JSONDecodeError):
             return {"history": []}
 
-    def _save(self, data: dict):
+    def _save(self, data: dict) -> None:
         with open(TOPICS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
