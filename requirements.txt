@@ -23,3 +23,6 @@ google-auth-oauthlib>=1.2.0
 
 # Google Cloud Storage archive
 google-cloud-storage>=2.16.0
+
+# Face detection to avoid showing identifiable people in stock media
+opencv-python-headless>=4.8.0

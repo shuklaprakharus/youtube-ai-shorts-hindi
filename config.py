@@ -42,6 +42,9 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")  # only needed for dalle
 # falling back to the AI image provider / procedural gradients.
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 
+# Reject stock media containing identifiable human faces (likeness safety).
+AVOID_FACES = os.environ.get("AVOID_FACES", "true").lower() == "true"
+
 # ─── YouTube upload settings ─────────────────────────────────────────────────
 YOUTUBE_CATEGORY_ID = "27"          # Education
 YOUTUBE_PRIVACY     = "public"      # "public" | "private" | "unlisted"

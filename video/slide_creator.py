@@ -31,7 +31,7 @@ from config import (
     SLIDES_DIR, BG_DIR, THEMES,
     HINDI_FONT_CANDIDATES,
     IMAGE_PROVIDER, OPENAI_API_KEY,
-    PEXELS_API_KEY,
+    PEXELS_API_KEY, AVOID_FACES,
 )
 
 
@@ -159,6 +159,92 @@ def _generate_bg_image(prompt: str, idx: int) -> Path:
         return _gen_bg_fallback(out, idx)
 
 
+# ───────────────────────── face detection (avoid likeness issues) ──────────
+# We never show identifiable human faces in stock media: it's a likeness/
+# personality-rights risk and generic stock people rarely fit an AI track.
+# OpenCV's Haar cascade rejects any candidate that contains a face, so the
+# selectors fall through to a face-free clip/photo (or the gradient).
+
+_FACE_CASCADE = None
+_FACE_CASCADE_READY = False
+
+
+def _face_cascade():
+    global _FACE_CASCADE, _FACE_CASCADE_READY
+    if _FACE_CASCADE_READY:
+        return _FACE_CASCADE
+    _FACE_CASCADE_READY = True
+    try:
+        import cv2
+        cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+        if cascade.empty():
+            raise RuntimeError("cascade file failed to load")
+        _FACE_CASCADE = cascade
+    except Exception as e:
+        print(f"     ⚠️  Face detection unavailable ({e}); face filter disabled.")
+        _FACE_CASCADE = None
+    return _FACE_CASCADE
+
+
+def _gray_has_face(gray) -> bool:
+    cascade = _face_cascade()
+    if cascade is None:
+        return False
+    import cv2
+    h, w = gray.shape[:2]
+    scale = 720 / max(h, w) if max(h, w) > 720 else 1.0
+    if scale < 1.0:
+        gray = cv2.resize(gray, (max(1, int(w * scale)), max(1, int(h * scale))))
+    faces = cascade.detectMultiScale(
+        gray, scaleFactor=1.1, minNeighbors=6, minSize=(36, 36)
+    )
+    return len(faces) > 0
+
+
+def _image_has_face(path: str) -> bool:
+    if not AVOID_FACES or _face_cascade() is None:
+        return False
+    try:
+        import cv2
+        img = cv2.imread(path)
+        if img is None:
+            return False
+        return _gray_has_face(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    except Exception:
+        return False
+
+
+def _video_has_face(path: str, samples: int = 6) -> bool:
+    if not AVOID_FACES or _face_cascade() is None:
+        return False
+    try:
+        import cv2
+        cap = cv2.VideoCapture(path)
+        try:
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+            if frame_count > 0:
+                points = [int(frame_count * (k + 0.5) / samples) for k in range(samples)]
+                for p in points:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, p)
+                    ok, frame = cap.read()
+                    if ok and _gray_has_face(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)):
+                        return True
+            else:
+                for _ in range(samples):           # unknown length → read serially
+                    ok, frame = cap.read()
+                    if not ok:
+                        break
+                    if _gray_has_face(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)):
+                        return True
+        finally:
+            cap.release()
+    except Exception:
+        return False
+    return False
+
+
 # ───────────────────────── Pexels stock footage/photos ─────────────────────
 
 def _stock_query(slide_data: dict) -> str:
@@ -193,6 +279,10 @@ def _pexels_video(query: str, idx: int) -> str | None:
         videos = data.get("videos") or []
         rng = random.Random(datetime.date.today().toordinal() * 31 + idx)
         rng.shuffle(videos)
+        Path(BG_DIR).mkdir(parents=True, exist_ok=True)
+        tmp = Path(BG_DIR) / f"_tmp_bgv_{idx:02d}.mp4"
+        out = Path(BG_DIR) / f"bgv_{idx:02d}.mp4"
+        downloads = 0
         for video in videos:
             files = [
                 f for f in video.get("video_files", [])
@@ -202,13 +292,20 @@ def _pexels_video(query: str, idx: int) -> str | None:
             ]
             if not files:
                 continue
+            if downloads >= 6:                          # bound bandwidth/time
+                break
             best = max(files, key=lambda f: f["height"])
             blob = requests.get(best["link"], timeout=120)
             blob.raise_for_status()
-            Path(BG_DIR).mkdir(parents=True, exist_ok=True)
-            out = Path(BG_DIR) / f"bgv_{idx:02d}.mp4"
-            out.write_bytes(blob.content)
+            tmp.write_bytes(blob.content)
+            downloads += 1
+            if _video_has_face(str(tmp)):
+                print("     · stock video has a face — trying another clip")
+                tmp.unlink(missing_ok=True)
+                continue
+            tmp.replace(out)
             return str(out)
+        tmp.unlink(missing_ok=True)
     except Exception as e:
         print(f"     ⚠️  Pexels video search failed ({e})")
     return None
@@ -226,16 +323,23 @@ def _pexels_photo(query: str, idx: int) -> str | None:
         photos = data.get("photos") or []
         rng = random.Random(datetime.date.today().toordinal() * 31 + idx)
         rng.shuffle(photos)
+        Path(BG_DIR).mkdir(parents=True, exist_ok=True)
+        tmp = Path(BG_DIR) / f"_tmp_bg_{idx:02d}.jpg"
+        out = Path(BG_DIR) / f"bg_{idx:02d}.jpg"
         for photo in photos:
             src = (photo.get("src") or {}).get("portrait") or (photo.get("src") or {}).get("large2x")
             if not src:
                 continue
             blob = requests.get(src, timeout=60)
             blob.raise_for_status()
-            Path(BG_DIR).mkdir(parents=True, exist_ok=True)
-            out = Path(BG_DIR) / f"bg_{idx:02d}.jpg"
-            out.write_bytes(blob.content)
+            tmp.write_bytes(blob.content)
+            if _image_has_face(str(tmp)):
+                print("     · stock photo has a face — trying another photo")
+                tmp.unlink(missing_ok=True)
+                continue
+            tmp.replace(out)
             return str(out)
+        tmp.unlink(missing_ok=True)
     except Exception as e:
         print(f"     ⚠️  Pexels photo search failed ({e})")
     return None
