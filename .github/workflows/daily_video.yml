@@ -5,6 +5,10 @@ on:
     - cron: "30 2 * * *"
   workflow_dispatch:
 
+# Needed to push the topics.json history commit back to the repo
+permissions:
+  contents: write
+
 jobs:
   generate-and-upload:
     runs-on: ubuntu-latest
