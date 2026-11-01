@@ -7,9 +7,9 @@ invents facts.
 
 Flow:
   1. YouTube Data API `videos.list(chart=mostPopular, regionCode=IN)` returns
-     the official most-popular list with real view counts (needs
-     YOUTUBE_API_KEY; falls back to the OAuth credentials if they carry a
-     read scope).
+     the official most-popular list with real view counts, using the repo's
+     existing secrets (see _fetch_most_popular). If none can read it, Gemini
+     with Google Search grounding provides an approximate ranking.
   2. Hindi videos are ranked by views and by views-per-hour since upload.
   3. Gemini reads that ranked list and picks the THEME behind the top
      view-getters that we can cover with ORIGINAL, family-friendly,
@@ -41,22 +41,39 @@ _UA = {"User-Agent": "AajKaItihaas/1.1 (educational content)"}
 # ─── 1. Most-popular videos in India, with view counts ───────────────────────
 
 def _fetch_most_popular(max_pages: int = 4) -> list[dict]:
-    api_key = os.environ.get("YOUTUBE_API_KEY", "")
-    params = {
-        "part": "snippet,statistics",
-        "chart": "mostPopular",
-        "regionCode": "IN",
-        "maxResults": 50,
-    }
-    headers = dict(_UA)
-    if api_key:
-        params["key"] = api_key
-    else:
-        token = _oauth_token()
-        if not token:
-            raise EnvironmentError("Set YOUTUBE_API_KEY to enable trending mode.")
-        headers["Authorization"] = f"Bearer {token}"
+    """
+    Official most-popular chart with real view counts. Uses the secrets the
+    repo already has, in order:
+      1. YOUTUBE_API_KEY (optional dedicated key)
+      2. GEMINI_API_KEY — a Google Cloud API key; works for YouTube Data API v3
+         when that API is enabled on the same project and the key is not
+         restricted to Gemini only
+      3. YOUTUBE_CREDENTIALS OAuth token (works if it carries a read scope)
+    """
+    attempts = []
+    for name in ("YOUTUBE_API_KEY", "GEMINI_API_KEY"):
+        if os.environ.get(name):
+            attempts.append((name, {"key": os.environ[name]}, {}))
+    token = _oauth_token()
+    if token:
+        attempts.append(("YOUTUBE_CREDENTIALS", {}, {"Authorization": f"Bearer {token}"}))
 
+    last_err = None
+    for name, extra_params, extra_headers in attempts:
+        try:
+            items = _list_most_popular(extra_params, extra_headers, max_pages)
+            print(f"     · Most-popular chart fetched with {name} ({len(items)} videos)")
+            return items
+        except requests.RequestException as exc:
+            last_err = exc
+            print(f"     · YouTube chart via {name} failed: {str(exc)[:160]}")
+    raise RuntimeError(f"No credential could read the YouTube chart: {last_err}")
+
+
+def _list_most_popular(extra_params: dict, extra_headers: dict, max_pages: int) -> list[dict]:
+    params = {"part": "snippet,statistics", "chart": "mostPopular",
+              "regionCode": "IN", "maxResults": 50, **extra_params}
+    headers = {**_UA, **extra_headers}
     items, page_token = [], None
     for _ in range(max_pages):
         if page_token:
@@ -70,6 +87,43 @@ def _fetch_most_popular(max_pages: int = 4) -> list[dict]:
         if not page_token:
             break
     return items
+
+
+def _search_grounded_ranking() -> list[dict]:
+    """
+    Last resort when no credential can read the chart: Gemini with Google
+    Search grounding lists today's most-viewed Hindi videos in India. View
+    counts here are approximate; the video's FACTS still come only from the
+    Wikipedia article chosen later.
+    """
+    from google import genai
+    from google.genai import types
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
+    prompt = (
+        "Using Google Search, list up to 25 of the most-viewed Hindi-language YouTube "
+        "videos trending in India in the last 3 days (YouTube trending charts, kworb.net, "
+        "creatordb.app). Return ONLY a JSON array of objects with keys: title, channel, "
+        "views (integer), hours_since_upload (integer, estimate if unknown). No prose."
+    )
+    resp = client.models.generate_content(
+        model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())], temperature=0.2),
+    )
+    m = re.search(r"\[.*\]", resp.text or "", re.DOTALL)
+    rows = json.loads(m.group(0)) if m else []
+    out = []
+    for r in rows:
+        try:
+            views = int(r.get("views", 0)); hours = max(1, int(r.get("hours_since_upload", 24)))
+        except (TypeError, ValueError):
+            continue
+        out.append({"title": str(r.get("title", ""))[:140], "channel": str(r.get("channel", "")),
+                    "category_id": "", "views": views, "views_per_hour": int(views / hours),
+                    "hours_since_upload": hours, "url": ""})
+    out.sort(key=lambda r: r["views"], reverse=True)
+    return out[:30]
 
 
 def _oauth_token() -> str | None:
@@ -192,8 +246,15 @@ def get_trending_topic(recent: str = "") -> dict | None:
     try:
         ranked = rank_videos(_fetch_most_popular())
     except Exception as exc:  # noqa: BLE001
-        print(f"     ⚠️  Trending fetch failed: {exc}")
-        return None
+        print(f"     ⚠️  YouTube chart unavailable: {exc}")
+        ranked = []
+    if len(ranked) < 5:
+        try:
+            print("     · Trying Gemini + Google Search for today's most-viewed Hindi videos …")
+            ranked = _search_grounded_ranking()
+        except Exception as exc:  # noqa: BLE001
+            print(f"     ⚠️  Search-grounded ranking failed: {exc}")
+            ranked = []
     if len(ranked) < 5:
         print(f"     ⚠️  Only {len(ranked)} Hindi trending videos — falling back.")
         return None
