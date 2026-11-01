@@ -23,6 +23,7 @@ from config import (
     VIDEO_WIDTH, VIDEO_HEIGHT, FPS,
     VIDEO_FILE, OUTPUT_DIR, MIN_SLIDE_DURATION,
     SUBTITLE_FONT_NAME, MUSIC_DIR, MUSIC_VOLUME,
+    AI_LABEL_TEXT, HINDI_FONT_CANDIDATES,
 )
 
 # Crossfade overlap between consecutive slides, in seconds.
@@ -230,6 +231,46 @@ def _xfade_clips(clip_paths: list, durations: list, output_path: str,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+_LATIN_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/Library/Fonts/Arial Bold.ttf",
+]
+
+
+def _make_ai_label_png() -> str:
+    """
+    Full-frame transparent PNG with a small but clearly visible
+    "AI Generated" badge in the bottom-right corner. Overlaid on every frame.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    path = os.path.join(OUTPUT_DIR, "_ai_label.png")
+    font = None
+    for cand in _LATIN_FONT_CANDIDATES + HINDI_FONT_CANDIDATES:
+        if os.path.exists(cand):
+            font = ImageFont.truetype(cand, max(24, VIDEO_WIDTH // 32))
+            break
+    font = font or ImageFont.load_default()
+
+    img = Image.new("RGBA", (VIDEO_WIDTH, VIDEO_HEIGHT), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    l, t, r, b = d.textbbox((0, 0), AI_LABEL_TEXT, font=font)
+    tw, th = r - l, b - t
+    pad_x, pad_y = th // 2 + 6, th // 3 + 4
+    margin = max(24, VIDEO_WIDTH // 30)
+    x1, y1 = VIDEO_WIDTH - margin, VIDEO_HEIGHT - margin
+    x0, y0 = x1 - tw - 2 * pad_x, y1 - th - 2 * pad_y
+    d.rounded_rectangle([x0, y0, x1, y1], radius=12, fill=(0, 0, 0, 175),
+                        outline=(255, 255, 255, 210), width=2)
+    d.text((x0 + pad_x - l, y0 + pad_y - t), AI_LABEL_TEXT, font=font,
+           fill=(255, 255, 255, 240))
+    img.save(path)
+    return path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def _pick_music_track(genre: str = None) -> str | None:
     """
     Choose an instrumental from assets/music/<genre>/, falling back to any
@@ -285,7 +326,10 @@ def assemble_video(slide_paths: list,
         srt_path = None
 
     temp_subbed = os.path.join(OUTPUT_DIR, "_temp_subbed.mp4")
+    label_png = _make_ai_label_png()
 
+    # One pass: AI label on every frame (+ Hindi subtitles when available).
+    filters = "[0:v][1:v]overlay=0:0"
     if srt_path and os.path.exists(srt_path):
         srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
         # Devanagari-capable font for Hindi subtitle rendering via libass
@@ -301,21 +345,21 @@ def assemble_video(slide_paths: list,
             "Alignment=2,"
             "MarginV=140"
         )
-        vf_subs = f"subtitles='{srt_escaped}':force_style='{sub_style}'"
-        cmd_subs = [
-            "ffmpeg", "-y",
-            "-i", temp_silent,
-            "-vf", vf_subs,
-            "-c:v", "libx264",
-            "-preset", "faster",
-            "-crf", "22",
-            "-pix_fmt", "yuv420p",
-            temp_subbed,
-        ]
-        _run(cmd_subs, "Burning Hindi subtitles")
-        video_before_audio = temp_subbed
-    else:
-        video_before_audio = temp_silent
+        filters += f",subtitles='{srt_escaped}':force_style='{sub_style}'"
+    cmd_subs = [
+        "ffmpeg", "-y",
+        "-i", temp_silent,
+        "-i", label_png,
+        "-filter_complex", filters + "[v]",
+        "-map", "[v]",
+        "-c:v", "libx264",
+        "-preset", "faster",
+        "-crf", "22",
+        "-pix_fmt", "yuv420p",
+        temp_subbed,
+    ]
+    _run(cmd_subs, "Burning AI label + Hindi subtitles")
+    video_before_audio = temp_subbed
 
     music_track = _pick_music_track(music_genre)
     mixed = False
@@ -362,7 +406,7 @@ def assemble_video(slide_paths: list,
         ]
         _run(cmd_audio, "Adding audio track")
 
-    for f in [temp_silent, temp_subbed]:
+    for f in [temp_silent, temp_subbed, label_png]:
         try:
             os.remove(f)
         except OSError:

@@ -47,7 +47,7 @@ def main() -> int:
 
         # ── 1. Pick today's topic ────────────────────────────────────────────
         print("\n📌  [1/6] Picking topic …")
-        topic = TopicAgent().get_today_topic()
+        topic = TopicAgent().get_topic()
         print(f"     → {topic}")
 
         # ── 2. Write script ──────────────────────────────────────────────────
@@ -87,6 +87,7 @@ def main() -> int:
             title        = seo["title"],
             description  = seo["description"],
             tags         = seo["tags"],
+            channel_tags = seo.get("channel_tags", "#Shorts #HindiShorts"),
         )
 
         run_id = os.environ.get("GITHUB_RUN_ID") or datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")

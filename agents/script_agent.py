@@ -29,7 +29,7 @@ CRITICAL — FACT GROUNDING:
 - If the source doesn't specify a particular detail, don't fabricate it —
   describe the event in general terms instead.
 
-The script tells Indian viewers WHY today's date matters in Indian history.
+{framing}
 It will be narrated by a female Hindi voice and shown on screen with
 AI-generated cinematic backgrounds.
 
@@ -44,7 +44,7 @@ LENGTH:
 SLIDE STRUCTURE (5 slides total):
 - Slide 1 — type "hook":     surprising/curious opener.
 - Slides 2-4 — type "content": each tells one fact / detail.
-- Slide 5 — type "cta":      a "subscribe daily for itihaas" closer.
+- Slide 5 — type "cta":      {cta}
 
 PER-SLIDE FIELDS:
   type:         "hook" | "content" | "cta"
@@ -117,9 +117,30 @@ def _validate_script(data: dict) -> None:
             raise ValueError(f"Slide {i + 1} missing keys: {sorted(missing)}")
 
 
+_FRAMING = {
+    "history": (
+        "The script tells Indian viewers WHY today's date matters in Indian history.",
+        'a "subscribe daily for itihaas" closer.',
+    ),
+    "trending": (
+        "The script explains this topic, which is connected to what Indian viewers\n"
+        "are watching most right now. Open with a curiosity question in the first\n"
+        "3 seconds. Never mention or describe any specific video, film, actor, song\n"
+        "or channel — cover only the topic itself. Religious or mythological content\n"
+        "is told respectfully as belief (मान्यता), never as historical fact.",
+        'a "रोज़ एक नई रोचक कहानी के लिए सब्सक्राइब करें" closer.',
+    ),
+}
+
+
 class ScriptAgent:
     def generate_script(self, topic: str, max_attempts: int = 3) -> dict:
-        prompt = _PROMPT_TEMPLATE.format(topic=topic)
+        try:
+            mode = json.loads(topic).get("mode", "history")
+        except (json.JSONDecodeError, AttributeError):
+            mode = "history"
+        framing, cta = _FRAMING.get(mode, _FRAMING["history"])
+        prompt = _PROMPT_TEMPLATE.format(topic=topic, framing=framing, cta=cta)
         last_error = None
         last_raw = ""
 
@@ -128,7 +149,7 @@ class ScriptAgent:
                 raw = generate_json(
                     prompt=prompt,
                     system_instruction=(
-                        "You are a careful Hindi history scriptwriter. Use only the "
+                        "You are a careful Hindi scriptwriter. Use only the "
                         "verified facts provided. Return valid JSON only."
                     ),
                     max_tokens=2400,
