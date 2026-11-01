@@ -1,16 +1,23 @@
-# Aaj Ka Itihaas — Daily Hindi History YouTube Shorts
+# Aaj Ka Itihaas — Daily Hindi YouTube Shorts
 
-Automated GitHub Actions pipeline that publishes one Hindi "today in history"
-Short every day:
+Automated GitHub Actions pipeline that publishes one Hindi Short every day:
 
-1. Wikipedia's "On this day" API provides the verified list of events for
-   today's date — the LLM never invents facts.
+1. **Topic** — `TOPIC_MODE=trending` (default): the YouTube Data API's
+   most-popular chart for India is ranked by view count, Gemini picks the
+   theme behind the top Hindi view-getters that can be covered with fully
+   original, family-friendly content, and that theme is grounded in a
+   Wikipedia article. `TOPIC_MODE=history`, or any trending failure: Wikipedia's
+   "On this day" API provides the verified events for today's date. Either
+   way the LLM never invents facts.
 2. Gemini picks the most India-relevant event, writes the Hindi script,
    and generates the title, description, and tags.
 3. Edge TTS renders the Hindi narration.
 4. AI backgrounds and FFmpeg create a vertical 9:16 MP4 with burned-in
-   Hindi subtitles.
-5. YouTube Data API uploads the Short with resumable upload.
+   Hindi subtitles and an "AI Generated" badge in the bottom-right corner of
+   every frame.
+5. YouTube Data API uploads the Short with resumable upload, with
+   `containsSyntheticMedia: true` (YouTube's altered/synthetic disclosure)
+   and an AI disclosure line in the description.
 6. Optional Google Cloud Storage archiving stores the MP4 and run metadata.
 
 The pipeline is designed so secrets are explicit and stable. If a token or
@@ -22,6 +29,9 @@ secret name is wrong, `preflight.py` fails before generation or upload starts.
 | --- | --- |
 | `GEMINI_API_KEY` | Gemini API key for topic picking, script, and SEO metadata |
 | `YOUTUBE_CREDENTIALS` | OAuth JSON from `python setup_auth.py` |
+| `YOUTUBE_API_KEY` | YouTube Data API key (same Google Cloud project) — needed for trending mode |
+
+Repository variable `TOPIC_MODE`: `trending` (default) or `history`.
 
 ## Optional Bucket Archive Secrets
 

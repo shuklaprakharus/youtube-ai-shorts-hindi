@@ -8,6 +8,19 @@ import os
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
+# ─── Topic selection ─────────────────────────────────────────────────────────
+# "trending" → theme behind today's most-viewed Hindi videos in India
+#              (needs YOUTUBE_API_KEY); falls back to "history" on any failure.
+# "history"  → Wikipedia "On this day" (the original Aaj Ka Itihaas format).
+TOPIC_MODE = os.environ.get("TOPIC_MODE", "trending").strip().lower()
+
+# ─── AI disclosure ───────────────────────────────────────────────────────────
+# Burned into the bottom-right corner of every frame, declared to YouTube via
+# status.containsSyntheticMedia, and stated in the description (India's IT
+# Rules 2026 require prominent labelling of AI-generated content).
+AI_LABEL_TEXT = "AI Generated"
+AI_DISCLOSURE_LINE = "⚠️ यह वीडियो AI की मदद से बनाया गया है (AI-generated visuals & voice)।"
+
 # ─── Video dimensions (YouTube Shorts = 9:16 vertical) ───────────────────────
 VIDEO_WIDTH  = 1080
 VIDEO_HEIGHT = 1920

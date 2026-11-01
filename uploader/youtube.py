@@ -13,7 +13,7 @@ Every subsequent automated run uses the stored refresh_token — no browser need
 
 import os
 import json
-from config import YOUTUBE_CATEGORY_ID, YOUTUBE_PRIVACY, YOUTUBE_LANGUAGE
+from config import YOUTUBE_CATEGORY_ID, YOUTUBE_PRIVACY, YOUTUBE_LANGUAGE, AI_DISCLOSURE_LINE
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -53,7 +53,8 @@ def _get_client():
 def upload_to_youtube(video_file: str,
                       title:      str,
                       description: str,
-                      tags:       list[str]) -> str:
+                      tags:       list[str],
+                      channel_tags: str = "#Shorts #AajKaItihaas #TodayInHistory #IndianHistory #HindiShorts") -> str:
     """
     Upload video_file to YouTube.
     Returns the public URL (Shorts format).
@@ -66,8 +67,9 @@ def upload_to_youtube(video_file: str,
     )
     full_desc = (
         f"{description}\n\n"
+        f"{AI_DISCLOSURE_LINE}\n\n"
         f"{hashtag_str}\n\n"
-        "#Shorts #AajKaItihaas #TodayInHistory #IndianHistory #HindiShorts"
+        f"{channel_tags}"
     )
 
     body = {
@@ -81,6 +83,8 @@ def upload_to_youtube(video_file: str,
         "status": {
             "privacyStatus":           YOUTUBE_PRIVACY,
             "selfDeclaredMadeForKids": False,
+            # Altered/synthetic content disclosure (shows YouTube's AI label).
+            "containsSyntheticMedia":  True,
         },
     }
 

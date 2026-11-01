@@ -17,7 +17,7 @@ import re
 
 import requests
 
-from config import TOPICS_FILE
+from config import TOPICS_FILE, TOPIC_MODE
 from agents.gemini_client import generate_json
 
 
@@ -132,6 +132,36 @@ def _format_hindi_date(target_date: datetime.date) -> str:
 # ─── TopicAgent ──────────────────────────────────────────────────────────────
 
 class TopicAgent:
+    def get_topic(self) -> str:
+        """
+        TOPIC_MODE=trending (default): pick from today's most-viewed Hindi
+        videos in India (see trend_agent.py), grounded in Wikipedia.
+        TOPIC_MODE=history, or any trending failure: today-in-history.
+        """
+        if TOPIC_MODE == "trending":
+            from agents.trend_agent import get_trending_topic
+            history = self._load()
+            print("     · Ranking today's most-viewed Hindi videos in India …")
+            payload = get_trending_topic(recent=self._format_recent(history))
+            if payload:
+                print(f"     · Trend signal: {payload['trend_signal']['title'][:70]} "
+                      f"({payload['trend_signal']['views']:,} views)")
+                payload["date_hindi"] = _format_hindi_date(datetime.date.today())
+                history.setdefault("history", []).append({
+                    "date":     payload["date_iso"],
+                    "mode":     "trending",
+                    "headline": payload.get("headline_hindi", ""),
+                    "event":    payload.get("main_event_en", ""),
+                    "category": payload.get("category"),
+                    "verified": payload.get("wikipedia_url", ""),
+                    "signal":   payload["trend_signal"],
+                })
+                history["history"] = history["history"][-365:]
+                self._save(history)
+                return json.dumps(payload, ensure_ascii=False)
+            print("     · Falling back to today-in-history topic.")
+        return self.get_today_topic()
+
     def get_today_topic(self) -> str:
         today = datetime.date.today()
         history = self._load()
@@ -185,6 +215,7 @@ class TopicAgent:
         # Always overwrite the Hindi date with our deterministic format
         payload["date_hindi"] = _format_hindi_date(today)
         payload["date_iso"] = today.isoformat()
+        payload["mode"] = "history"
 
         # Append to history
         history.setdefault("history", []).append({
