@@ -29,7 +29,7 @@ secret name is wrong, `preflight.py` fails before generation or upload starts.
 | --- | --- |
 | `GEMINI_API_KEY` | Gemini API key for topic picking, script, and SEO metadata |
 | `YOUTUBE_CREDENTIALS` | OAuth JSON from `python setup_auth.py` |
-| `YOUTUBE_API_KEY` | YouTube Data API key (same Google Cloud project) — needed for trending mode |
+| `YOUTUBE_API_KEY` | Optional. Trending mode first tries this, then `GEMINI_API_KEY` (works if YouTube Data API v3 is enabled on its Google Cloud project), then `YOUTUBE_CREDENTIALS`, then Gemini + Google Search |
 
 Repository variable `TOPIC_MODE`: `trending` (default) or `history`.
 
