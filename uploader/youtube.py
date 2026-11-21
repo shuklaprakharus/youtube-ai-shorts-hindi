@@ -54,10 +54,16 @@ def upload_to_youtube(video_file: str,
                       title:      str,
                       description: str,
                       tags:       list[str],
-                      channel_tags: str = "#Shorts #AajKaItihaas #TodayInHistory #IndianHistory #HindiShorts") -> str:
+                      channel_tags: str = "#Shorts #AajKaItihaas #TodayInHistory #IndianHistory #HindiShorts",
+                      privacy:    str | None = None,
+                      category_id: str | None = None,
+                      made_for_kids: bool = False,
+                      thumbnail:  str | None = None) -> str:
     """
     Upload video_file to YouTube.
     Returns the public URL (Shorts format).
+    privacy / category_id default to config.py; made_for_kids sets
+    status.selfDeclaredMadeForKids (required for content aimed at children).
     """
     youtube = _get_client()
 
@@ -77,12 +83,12 @@ def upload_to_youtube(video_file: str,
             "title":           title[:100],        # YouTube 100-char limit
             "description":     full_desc[:5000],   # YouTube 5000-char limit
             "tags":            tags[:500],
-            "categoryId":      YOUTUBE_CATEGORY_ID,
+            "categoryId":      category_id or YOUTUBE_CATEGORY_ID,
             "defaultLanguage": YOUTUBE_LANGUAGE,
         },
         "status": {
-            "privacyStatus":           YOUTUBE_PRIVACY,
-            "selfDeclaredMadeForKids": False,
+            "privacyStatus":           privacy or YOUTUBE_PRIVACY,
+            "selfDeclaredMadeForKids": bool(made_for_kids),
             # Altered/synthetic content disclosure (shows YouTube's AI label).
             "containsSyntheticMedia":  True,
         },
@@ -111,4 +117,15 @@ def upload_to_youtube(video_file: str,
     video_id = response["id"]
     url      = f"https://youtube.com/shorts/{video_id}"
     print(f"     → Published: {url}")
+
+    if thumbnail and os.path.exists(thumbnail):
+        # Custom thumbnails need a verified channel; never fail an upload over it.
+        try:
+            youtube.thumbnails().set(
+                videoId=video_id,
+                media_body=MediaFileUpload(thumbnail, mimetype="image/jpeg"),
+            ).execute()
+            print("     → Thumbnail set")
+        except Exception as e:
+            print(f"     ⚠ Thumbnail not set ({e})")
     return url
