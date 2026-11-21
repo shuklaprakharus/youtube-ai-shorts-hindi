@@ -1,0 +1,97 @@
+name: Kids Rhyme Short (पीलू बतख)
+
+# Builds one original Hindi nursery-rhyme Short (3D-style animation, voices, music) and uploads it
+# as "made for kids". Episodes come from kids/episodes/ or, when GEMINI_API_KEY is set, are written
+# fresh by Gemini each day. Pull requests that touch the pipeline get a build-only test run.
+
+on:
+  schedule:
+    - cron: "17 12 * * *"        # 17:47 IST daily
+  workflow_dispatch:
+    inputs:
+      episode:
+        description: "Library episode id to force (e.g. ep02_baarish). Leave empty for automatic."
+        required: false
+        default: ""
+      upload:
+        description: "Upload to YouTube (untick for a build-only run)"
+        type: boolean
+        default: true
+      privacy:
+        description: "public | unlisted | private (empty = repository variable KIDS_PRIVACY, else public)"
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - "kids/**"
+      - "assets/fonts/**"
+      - ".github/workflows/kids_rhyme.yml"
+
+permissions:
+  contents: write                # to commit kids/history.json back
+
+concurrency:
+  group: kids-rhyme-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg libraqm0
+          ffmpeg -hide_banner -filters | grep -q rubberband && echo "rubberband OK"
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build and upload the kids Short
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          GCS_PREFIX: ${{ vars.GCS_PREFIX_KIDS || 'youtube-ai-shorts-hindi-kids' }}
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+          KIDS_UPLOAD: ${{ github.event_name == 'pull_request' && 'false' || (github.event_name == 'workflow_dispatch' && (inputs.upload && 'true' || 'false')) || vars.KIDS_UPLOAD || 'true' }}
+          KIDS_EPISODE: ${{ github.event_name == 'pull_request' && 'ep02_baarish' || inputs.episode || '' }}
+          KIDS_PRIVACY: ${{ inputs.privacy || vars.KIDS_PRIVACY || 'public' }}
+          KIDS_SOURCE: ${{ vars.KIDS_SOURCE || 'auto' }}
+        run: python -m kids.main
+
+      - name: Save video as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kids-short-${{ github.run_number }}
+          path: |
+            output/kids/final_video.mp4
+            output/kids/thumbnail.jpg
+            output/kids/run_metadata.json
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Commit episode history
+        if: success() && github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kids/history.json kids/episodes/generated 2>/dev/null || git add kids/history.json
+          if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+          git commit -m "Kids rhyme: record published episode"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push

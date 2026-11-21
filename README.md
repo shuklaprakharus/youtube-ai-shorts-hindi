@@ -86,3 +86,40 @@ by the workflow) so the channel doesn't repeat itself.
 - YouTube uploads use category `27` (Education).
 - YouTube Data API projects created after July 28, 2020 may upload videos as
   private until the API project is verified by Google.
+
+## Kids Rhyme Shorts — पीलू बतख (second workflow)
+
+`.github/workflows/kids_rhyme.yml` publishes one original Hindi nursery-rhyme Short a day
+(17:47 IST) as **made for kids**: a 66-second song-story about Peelu the duckling, her mama,
+a frog and a fish, ending with a simple lesson.
+
+1. **Episode** — when `GEMINI_API_KEY` is set, Gemini writes a new episode (12 rhyming lines on
+   a fixed beat sheet, bubbles, moral card, SEO) that is validated (Devanagari only, line length,
+   kid-safe words, structure). Without a key, or if Gemini fails, the next unused hand-written
+   episode in `kids/episodes/` is used. Published episodes are recorded in `kids/history.json`
+   (committed back by the workflow) so nothing repeats.
+2. **Voices** — edge-tts neural voices per character (gTTS + pitch shift as fallback), fitted to a
+   100 BPM grid; each line must fit its two-bar slot.
+3. **Music & sound effects** — synthesized from scratch (no licensed audio).
+4. **Animation** — 3D-shaded characters and a painted pond rendered in Python (`kids/chars.py`,
+   `kids/bg.py`, `kids/render.py`), karaoke lyrics, "AI Generated" label on every frame.
+5. **Upload** — the existing uploader with `selfDeclaredMadeForKids: true`,
+   `containsSyntheticMedia: true` and a custom thumbnail (needs a verified channel).
+
+Episode events available to the animation: `wander` (butterfly lures Peelu away), `rain`
+(rain + thunder, she hides) and `treat` (a mango falls, she keeps it to herself).
+
+| Setting (repository variable) | Default | Meaning |
+| --- | --- | --- |
+| `KIDS_UPLOAD` | `true` | `false` = build only (video kept as a workflow artifact) |
+| `KIDS_PRIVACY` | `public` | `public`, `unlisted` or `private` |
+| `KIDS_SOURCE` | `auto` | `auto` (Gemini, else library), `library`, `gemini` |
+
+Run it by hand from the Actions tab (**Kids Rhyme Short → Run workflow**); you can force a library
+episode (e.g. `ep02_baarish`) and untick *upload* for a test. Local dry run:
+
+```bash
+KIDS_UPLOAD=false KIDS_EPISODE=ep02_baarish python -m kids.main   # → output/kids/final_video.mp4
+```
+
+Fonts: Baloo 2 and Mukta (SIL Open Font License, see `assets/fonts/`).

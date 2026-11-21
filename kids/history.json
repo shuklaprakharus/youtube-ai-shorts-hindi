@@ -1,0 +1,14 @@
+{
+  "episodes": [
+    {
+      "date": "2026-11-21",
+      "id": "ep01_khoi_peelu",
+      "title": "पीलू बतख की कहानी!",
+      "lesson": "खो जाओ तो वहीं रुको और ज़ोर से बोलो",
+      "event": "wander",
+      "source": "library",
+      "youtube_url": null,
+      "note": "Made by hand on 2026-11-21 (the video already delivered). Remove this entry to let the pipeline publish it."
+    }
+  ]
+}
